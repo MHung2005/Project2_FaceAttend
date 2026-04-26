@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+  
+  frontend:
+    build: 
+      context: ./frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - backend
+  
+  redis:
+    image: redis:7-apline
+    container_name: redis
+    ports:
+      - "6379:6379"
+    

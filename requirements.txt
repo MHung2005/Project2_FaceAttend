@@ -1,0 +1,6 @@
+insightface
+opencv
+uvicorn
+numpy
+fastapi
+redis

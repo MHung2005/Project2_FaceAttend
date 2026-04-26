@@ -1,0 +1,69 @@
+/* 1. Import đúng các font bạn muốn sử dụng */
+/* 1. Import phải ở đầu tiên */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Roboto:wght@400;500;700;900&display=swap');
+@import "tailwindcss";
+
+/* 2. Cấu hình Theme theo chuẩn v4 */
+
+:root {
+  --font-modern: 'Google Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-mono: 'Geist Mono', 'Fira Mono', 'Menlo', 'Consolas', monospace;
+  --color-slate-950: #020617;
+}
+
+/* 3. Layer Base */
+@layer base {
+  * { 
+    -webkit-font-smoothing: antialiased; 
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  
+  body { 
+    font-family: var(--font-modern);
+    letter-spacing: -0.015em;
+    color: var(--color-slate-950);
+    background-color: white;
+    font-size: 13px
+  }
+
+  code, pre { 
+    font-family: var(--font-mono);
+    letter-spacing: -0.01em;
+  }
+
+  /* Thay vì @apply, hãy dùng biến CSS để tránh lỗi build PostCSS */
+  h1, h2, h3, h4 {
+    font-weight: 700;
+    letter-spacing: -0.025em; /* tương đương tracking-tight */
+    color: var(--color-slate-950);
+  }
+}
+
+@keyframes scan-laser {
+  0%   { top: 8%; opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 1; }
+  100% { top: 92%; opacity: 0; }
+}
+@keyframes pulse-ring {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%       { opacity: 0.8; transform: scale(1.05); }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.animate-scan-laser { animation: scan-laser 2.8s ease-in-out infinite; }
+.animate-pulse-ring  { animation: pulse-ring 2s ease-in-out infinite; }
+.animate-fade-in-up  { animation: fade-in-up 0.5s ease-out both; }
+.animate-blink       { animation: blink 1.4s ease-in-out infinite; }
