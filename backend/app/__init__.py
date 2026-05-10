@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api.guest import guest_router
 from .api.manager import manager_router
 from .api.auth import auth_router          
-from .service.storage import StorageService
+from .database.storage import StorageService
 from .service.auth_service import AuthService
 
 def create_app():

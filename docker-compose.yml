@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build: 
@@ -7,8 +5,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    depends_on:
-      - db
+    # depends_on:
+    #   - db
   
   frontend:
     build: 
@@ -19,8 +17,9 @@ services:
       - backend
   
   redis:
-    image: redis:7-apline
-    container_name: redis
+    # BẮT BUỘC dùng redis-stack để có tính năng Vector Search
+    image: redis/redis-stack:latest 
     ports:
-      - "6379:6379"
-    
+      - "6379:6379"  # Cổng cho Backend kết nối
+      - "8001:8001"  # Cổng cho giao diện Redis Insight 
+    container_name: redis

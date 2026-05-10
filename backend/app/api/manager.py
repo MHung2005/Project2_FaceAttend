@@ -1,10 +1,11 @@
-from fastapi import APIRouter, UploadFile, File, Form, Depends
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
+from pydantic import BaseModel
 import numpy as np
 import cv2
 from datetime import datetime
 from fastapi import Query
-from ..service.embeddings import FaceEmbeddingService
-from ..service.storage import StorageService
+from ..service.ai.embeddings import FaceEmbeddingService
+from ..database.storage import StorageService
 from ..api.auth import get_current_manager  
 
 db = StorageService()
@@ -25,12 +26,17 @@ async def create_employee(
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
     if img is None:
-        return {"status": "error", "reason": "Ảnh không hợp lệ"}
+        # HTTP 400 → axios sẽ throw → frontend bắt được trong catch
+        raise HTTPException(status_code=400, detail="Ảnh không hợp lệ")
 
     vector = face_embed.embedding_img(img)
 
     if vector is None:
-        return {"status": "error", "reason": "Không tìm thấy khuôn mặt trong ảnh"}
+        # Có thể do: không phát hiện khuôn mặt, keypoint không đủ, ảnh mờ/tối
+        raise HTTPException(
+            status_code=422,
+            detail="Không thể nhận diện khuôn mặt. Vui lòng đảm bảo khuôn mặt rõ ràng, đủ ánh sáng và nhìn thẳng vào camera."
+        )
 
     db.add_face(user_id, name, department, position, vector)
 
@@ -78,6 +84,41 @@ def get_checkins_range(
     end_date: str = Query(..., description="YYYY-MM-DD"),
     current_manager = Depends(get_current_manager)
 ):
-    """Lấy số điểm danh mỗi ngày trong khoảng thời gian [start_date, end_date]"""
     data = db.get_checkins_by_range(start_date, end_date)
     return {"data": data}
+
+@manager_router.get("/employees")
+def list_employees(current_manager=Depends(get_current_manager)):
+    employees = db.get_all_employees()
+    return {
+        "total": len(employees),
+        "employees": employees
+    }
+
+@manager_router.delete("/employees/{user_id}")
+def delete_employee(
+    user_id: str,
+    current_manager=Depends(get_current_manager)
+):
+    success = db.delete_employee(user_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên")
+    return {"status": "success", "message": f"Đã xóa nhân viên {user_id}"}
+
+class UpdateEmployeeBody(BaseModel):
+    name:       str
+    department: str
+    position:   str
+
+@manager_router.put("/employees/{user_id}")
+def update_employee(
+    user_id: str,
+    body: UpdateEmployeeBody,
+    current_manager=Depends(get_current_manager)
+):
+    success = db.update_employee(
+        user_id, body.name, body.department, body.position
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên")
+    return {"status": "success", "message": "Đã cập nhật thông tin"}

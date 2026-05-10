@@ -1,40 +1,30 @@
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Webcam from 'react-webcam';
 import { LayoutDashboard, UserPlus, FileText, BarChart2,
-         Shield, Search, CheckCircle2, Circle, ChevronDown } from 'lucide-react';
+         Shield, CheckCircle2, Circle, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { registerEmployee } from '../api/api';
 
 const NAV = [
   { icon: <LayoutDashboard size={16} />, label: 'Tổng quan',         path: '/dashboard' },
   { icon: <UserPlus size={16} />,        label: 'Đăng ký khuôn mặt',  path: '/register', active: true },
-  { icon: <FileText size={16} />,        label: 'Nhật ký truy cập',    path: '#' },
-  { icon: <BarChart2 size={16} />,       label: 'Phân tích người dùng',path: '#' },
-  { icon: <Shield size={16} />,          label: 'Bảo mật',             path: '#' },
 ];
 
 const FIELDS = [
-  { key: 'user_id',    label: 'Mã nhân viên',    placeholder: 'FA-99210' },
-  { key: 'department', label: 'Phòng ban',       placeholder: 'Kỹ thuật lõi', dropdown: true },
-  { key: 'name',       label: 'Họ và tên',        placeholder: 'Nguyễn Văn A', full: true },
+  { key: 'user_id',    label: 'Mã nhân viên', placeholder: 'NV001' },
+  { key: 'department', label: 'Phòng ban',     placeholder: 'Kỹ thuật', dropdown: true },
+  { key: 'name',       label: 'Họ và tên',     placeholder: 'Nguyễn Văn A', full: true },
 ];
 
 const GUIDANCE = [
-  { label: 'Ánh sáng phù hợp', ok: true  },
-  { label: 'Mắt mở rõ',        ok: true  },
+  { label: 'Ánh sáng phù hợp',    ok: true  },
+  { label: 'Mắt mở rõ',           ok: true  },
   { label: 'Căn chỉnh khuôn mặt', ok: false },
 ];
 
-const AI_INSIGHTS = [
-  { label: 'Phát hiện khuôn mặt', val: 'CÓ',     color: 'text-green-400' },
-  { label: 'Điểm nhận diện',      val: '128 điểm', color: 'text-cyan-400' },
-  { label: 'Ánh sáng',            val: 'TỐI ƯU',   color: 'text-green-400' },
-  { label: 'Khoảng cách',         val: '0.8m',     color: 'text-cyan-400' },
-];
-
 export default function RegisterFace() {
-  const { username } = useAuth();
+  const { username, logout } = useAuth();
   const navigate     = useNavigate();
   const webcamRef    = useRef<Webcam>(null);
   const [form, setForm]         = useState({ user_id:'', department:'', name:'' });
@@ -43,8 +33,20 @@ export default function RegisterFace() {
   const [captured, setCaptured] = useState<string|null>(null);
   const [camErr, setCamErr]     = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // reliability score animation
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const [reliability] = useState(84);
   const circum = 2 * Math.PI * 40;
   const dash   = circum - (reliability / 100) * circum;
@@ -60,6 +62,7 @@ export default function RegisterFace() {
     }
     const src = captured || webcamRef.current?.getScreenshot();
     if (!src) { setMsg({ type:'error', text:'Vui lòng chụp ảnh khuôn mặt trước' }); return; }
+
     setLoading(true); setMsg(null);
     try {
       const blob = await (await fetch(src)).blob();
@@ -74,8 +77,17 @@ export default function RegisterFace() {
       setForm({ user_id:'', department:'', name:'' });
       setCaptured(null);
     } catch (err: any) {
-      setMsg({ type:'error', text: err.response?.data?.reason || 'Đăng ký thất bại' });
-    } finally { setLoading(false); }
+      // FastAPI HTTPException trả về { detail: "..." }
+      // Lấy detail trước, fallback về reason (cũ), rồi message chung
+      const detail =
+        err.response?.data?.detail ||
+        err.response?.data?.reason ||
+        'Đăng ký thất bại, vui lòng thử lại';
+      setMsg({ type:'error', text: detail });
+      // Giữ lại ảnh đã chụp để user có thể thử lại mà không cần chụp lại
+    } finally {
+      setLoading(false);
+    }
   }, [form, captured]);
 
   return (
@@ -85,15 +97,12 @@ export default function RegisterFace() {
       <aside className={`${sidebarOpen ? 'w-52' : 'w-0 overflow-hidden'} flex-shrink-0
                          bg-white border-r border-slate-100 flex flex-col
                          transition-all duration-300 ease-in-out lg:w-52`}>
-        {/* Logo */}
         <div className="px-5 py-5 border-b border-slate-100">
           <p className="text-sm font-black text-slate-950">FaceAttend</p>
           <p className="text-[9px] text-slate-400 tracking-widest uppercase mt-0.5">
             Bảo mật sinh trắc học
           </p>
         </div>
-
-        {/* Nav */}
         <nav className="flex-1 py-4">
           {NAV.map(({ icon, label, path, active }) => (
             <button key={label}
@@ -119,16 +128,34 @@ export default function RegisterFace() {
             Cổng đăng ký
           </h1>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              <input placeholder="Tìm kiếm..."
-                className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl
-                      text-xs text-slate-700 placeholder-slate-300 outline-none
-                      focus:border-blue-400 transition-all w-48" />
-            </div>
-            <div className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center
-                            text-[10px] font-bold text-white">
-              {username?.[0]?.toUpperCase() ?? 'A'}
+            <div className="relative" ref={userMenuRef}>
+              <div
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="w-7 h-7 rounded-full bg-blue-700 flex items-center justify-center
+                           text-[10px] font-bold text-white cursor-pointer hover:ring-2 hover:ring-blue-200 transition-all"
+              >
+                {username?.[0]?.toUpperCase() ?? 'A'}
+              </div>
+
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in duration-150">
+                  <div className="px-4 py-2 border-b border-slate-50 mb-1">
+                    <p className="text-xs font-bold text-slate-900">{username || 'Admin'}</p>
+                    <p className="text-[10px] text-slate-400">Quản trị viên</p>
+                  </div>
+                  <button
+                    onClick={logout}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 17l5-5-5-5" />
+                      <path d="M15 12H3" />
+                      <path d="M21 5v14" />
+                    </svg>
+                    <span>Đăng xuất</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -187,22 +214,32 @@ export default function RegisterFace() {
             </div>
 
             {/* Camera card */}
-              <div className="bg-[#0e1624] rounded-3xl overflow-hidden relative"
-                style={{ minHeight: 300 }}>
+            <div className="bg-[#0e1624] rounded-3xl overflow-hidden relative"
+                 style={{ minHeight: 300 }}>
 
-              {/* Success banner */}
+              {/* ── Thông báo kết quả — hiển thị rõ ràng trên camera ── */}
               {msg?.type === 'success' && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30
-                                bg-green-500 text-white text-xs font-bold px-5 py-2
-                                rounded-full flex items-center gap-1.5 animate-fade-in-up">
-                  <CheckCircle2 size={13} /> {msg.text}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 w-[90%] max-w-sm
+                                bg-emerald-500 text-white text-xs font-bold px-5 py-3
+                                rounded-2xl flex items-center gap-2 shadow-lg">
+                  <CheckCircle2 size={15} className="flex-shrink-0" />
+                  <span>{msg.text}</span>
                 </div>
               )}
+
               {msg?.type === 'error' && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30
-                                bg-red-500 text-white text-xs font-bold px-5 py-2
-                                rounded-full flex items-center gap-1.5 animate-fade-in-up">
-                  ⚠ {msg.text}
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 w-[90%] max-w-sm
+                                bg-red-500 text-white text-xs font-bold px-5 py-3
+                                rounded-2xl flex items-start gap-2 shadow-lg">
+                  {/* Icon cảnh báo */}
+                  <svg className="flex-shrink-0 mt-px" width="15" height="15" viewBox="0 0 24 24"
+                       fill="none" stroke="currentColor" strokeWidth="2.5"
+                       strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <span className="leading-relaxed">{msg.text}</span>
                 </div>
               )}
 
@@ -223,7 +260,6 @@ export default function RegisterFace() {
               {!captured && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="relative w-48 h-48">
-                    {/* Corners */}
                     {[
                       'top-0 left-0 border-t-2 border-l-2',
                       'top-0 right-0 border-t-2 border-r-2',
@@ -232,14 +268,12 @@ export default function RegisterFace() {
                     ].map((cls, i) => (
                       <div key={i} className={`absolute w-7 h-7 border-blue-400 ${cls}`} />
                     ))}
-                    {/* Detection dots */}
                     {[[35,30],[65,30],[30,55],[70,55],[50,70],[35,78],[65,78]]
                       .map(([x,y],i) => (
                         <div key={i}
                              className="absolute w-1 h-1 rounded-full bg-blue-400 opacity-60"
                              style={{ left:`${x}%`, top:`${y}%`, transform:'translate(-50%,-50%)' }} />
                       ))}
-                    {/* Laser */}
                     <div className="absolute left-0 right-0 h-px animate-scan-laser"
                          style={{
                            background:'linear-gradient(90deg,transparent,#3b82f6cc,#60a5faff,#3b82f6cc,transparent)',
@@ -318,53 +352,6 @@ export default function RegisterFace() {
                     ) : (
                       <Circle size={16} className="text-slate-200" />
                     )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Reliability score */}
-            <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm">
-              <p className="text-[9px] font-black text-slate-400 tracking-widest uppercase mb-4">
-                Độ tin cậy
-              </p>
-              <div className="flex items-center justify-center my-2">
-                <div className="relative w-24 h-24">
-                  <svg width="96" height="96" viewBox="0 0 96 96"
-                       style={{ transform: 'rotate(-90deg)' }}>
-                    <circle cx="48" cy="48" r="40" stroke="#f1f5f9"
-                            strokeWidth="8" fill="none" />
-                    <circle cx="48" cy="48" r="40" stroke="#3b82f6"
-                            strokeWidth="8" fill="none"
-                            strokeDasharray={circum} strokeDashoffset={dash}
-                            strokeLinecap="round" />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-2xl font-black text-slate-950">{reliability}%</span>
-                    <span className="text-[9px] text-slate-400 uppercase tracking-wider">
-                      Tin cậy
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-center">
-                <span className="inline-block text-[10px] font-bold text-blue-600
-                                 bg-blue-50 border border-blue-100 rounded-full px-3 py-1">
-                  Đạt ngưỡng
-                </span>
-              </div>
-            </div>
-
-            {/* AI Insights */}
-            <div className="bg-[#0e1624] border border-slate-800 rounded-3xl p-5">
-              <p className="text-[9px] font-black text-slate-500 tracking-widest uppercase mb-4">
-                AI đánh giá
-              </p>
-              <div className="space-y-2.5">
-                {AI_INSIGHTS.map(({ label, val, color }) => (
-                  <div key={label} className="flex items-center justify-between">
-                    <span className="text-xs text-slate-500">{label}</span>
-                    <span className={`text-xs font-bold font-mono ${color}`}>{val}</span>
                   </div>
                 ))}
               </div>

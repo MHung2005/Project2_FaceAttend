@@ -3,7 +3,7 @@ import Webcam from 'react-webcam';
 import { Maximize2, RefreshCw, HelpCircle, Wifi, Cloud } from 'lucide-react';
 import { checkinFace } from '../api/api';
 
-type Status = 'idle' | 'scanning' | 'success' | 'already' | 'fail';
+type Status = 'idle' | 'scanning' | 'success' | 'already' | 'fail'| 'already_checked';
 type Result = {
   status: string; name?: string; department?: string;
   position?: string; timestamp?: string; reason?: string;
@@ -33,6 +33,11 @@ export default function GuestCheckIn() {
     tick(); const id = setInterval(tick, 1000); return () => clearInterval(id);
   }, []);
 
+  const stopScan = useCallback(() => {
+    setActive(false);
+    if (intervalRef.current) clearInterval(intervalRef.current);
+  }, []);
+
   const doScan = useCallback(async () => {
     if (!webcamRef.current) return;
     const src = webcamRef.current.getScreenshot();
@@ -46,16 +51,27 @@ export default function GuestCheckIn() {
       const res = await checkinFace(fd);
       clearInterval(anim);
       setResult(res.data);
-      if (res.data.status === 'success')         { setScore(92); setStatus('success'); stopScan(); }
-      else if (res.data.status === 'already_checked') { setStatus('already'); stopScan(); }
-      else                                        { setScore(0); setStatus('fail'); }
-    } catch { clearInterval(anim); setStatus('fail'); setScore(0); }
-  }, []);
+      
+      if (res.data.status === 'success') { 
+        setScore(92); 
+        setStatus('success'); 
+        // stopScan(); <--- XÓA DÒNG NÀY để không tự động dừng khi thành công
+      }
+      else if (res.data.status === 'already_checked') { 
+        setStatus('already_checked'); 
+        // stopScan(); <--- XÓA DÒNG NÀY để tiếp tục quét cho người sau
+      }
+      else { 
+        setScore(0); 
+        setStatus('fail'); 
+      }
+    } catch { 
+      clearInterval(anim); 
+      setStatus('fail'); 
+      setScore(0); 
+    }
+  }, [stopScan]); // Đảm bảo dependencies đầy đủ
 
-  const stopScan = useCallback(() => {
-    setActive(false);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-  }, []);
 
   const startScan = useCallback(() => {
     setActive(true); setResult(null); setScore(0); setStatus('scanning');
@@ -164,7 +180,7 @@ export default function GuestCheckIn() {
             <p className="text-[14px] text-slate-400 tracking-widest uppercase mb-3 font-bold">Kết quả</p>
 
             {/* State heading */}
-            <h2 className={`text-2xl font-extrabold mb-4 transition-colors
+            {/* <h2 className={`text-2xl font-extrabold mb-4 transition-colors
               ${status === 'success' ? 'text-slate-950'
               : status === 'scanning' ? 'text-blue-600'
               : status === 'fail' || status === 'already' ? 'text-red-500'
@@ -174,6 +190,22 @@ export default function GuestCheckIn() {
                : status === 'success'  ? result?.name ?? 'Nhận diện xong'
                : status === 'already'  ? result?.name ?? 'Đã điểm danh'
                : 'Không tìm thấy'}
+            </h2> */}
+
+            <h2 className={`text-2xl font-extrabold mb-4 transition-colors
+                ${status === 'success' ? 'text-slate-950'
+                : status === 'scanning' ? 'text-blue-600'
+                // Thêm 'already_checked' vào nhóm màu đỏ (hoặc màu cam nếu bạn muốn phân biệt)
+                : status === 'fail' || status === 'already' || status === 'already_checked' ? 'text-red-500' 
+                : 'text-slate-300'}`}>
+                
+                {status === 'idle'      ? 'Chờ bắt đầu'
+                : status === 'scanning' ? 'Đang quét...'
+                : status === 'success'  ? result?.name ?? 'Nhận diện xong'
+                // Logic hiển thị cho trạng thái mới
+                : status === 'already_checked' ? (result?.name ? `${result.name} - Đã điểm danh` : 'Đã điểm danh')
+                : status === 'already'  ? result?.name ?? 'Đã điểm danh'
+                : 'Không tìm thấy'}
             </h2>
 
             {/* Score circle + meta */}

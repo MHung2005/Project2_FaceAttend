@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, TrendingUp, UserX, User, Monitor, Bell, Settings,
+import { Users, TrendingUp, UserX, User, Bell, Settings,
          LogOut, ChevronRight } from 'lucide-react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis,
@@ -16,10 +16,6 @@ interface WeeklyPoint { label: string; count: number; }
 interface Record { user_id: string; name: string; department: string; position: string; timestamp: string; }
 
 const MOCK_WEEKLY: WeeklyPoint[] = DAYS.map((d, i) => ({ label: d, count: [22,25,21,28,24,18,10][i] }));
-// const MONTHS_VN = ['Th1','Th2','Th3','Th4','Th5','Th6'];
-// const MOCK_MONTHLY = MONTHS_VN.map((m, i) => ({
-//   m, current: [30,38,35,50,42,55][i], target: [40,40,40,45,45,50][i]
-// }));
 
 interface RangePoint { date: string; label: string; count: number; }
 
@@ -49,7 +45,6 @@ export default function ManagerDashboard() {
   const [loading, setLoad]    = useState(false);
   const [attLoad, setAttLoad] = useState(false);
 
-  // State cho dữ liệu bar chart theo khoảng thời gian
   const [rangeData, setRangeData] = useState<RangePoint[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeEnd, setRangeEnd] = useState(() =>
@@ -57,24 +52,34 @@ export default function ManagerDashboard() {
   );
   const [rangeStart, setRangeStart] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 6); // hôm nay là ngày thứ 7, lùi 6 ngày
+    d.setDate(d.getDate() - 6);
     return d.toISOString().split('T')[0];
   });
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
-  // Xác định hiển thị trục X theo ngày hay tháng
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const isMonthView = (() => {
     const start = new Date(rangeStart);
     const end = new Date(rangeEnd);
     return (end.getTime() - start.getTime()) / (1000*60*60*24) > 31;
   })();
 
-  // Xử lý dữ liệu cho trục X
   const chartData = isMonthView
     ? (() => {
-        // Gom nhóm theo tháng
         const map = new Map();
         rangeData.forEach(item => {
-          const month = item.date.slice(0,7); // yyyy-mm
+          const month = item.date.slice(0,7);
           if (!map.has(month)) map.set(month, 0);
           map.set(month, map.get(month) + item.count);
         });
@@ -82,7 +87,6 @@ export default function ManagerDashboard() {
       })()
     : rangeData.map(item => ({ label: item.date.slice(8,10) + '/' + item.date.slice(5,7), count: item.count }));
 
-  // Fetch dữ liệu khi đổi khoảng
   useEffect(() => {
     setRangeLoading(true);
     getStatsByRange(rangeStart, rangeEnd)
@@ -139,13 +143,24 @@ export default function ManagerDashboard() {
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex items-center gap-2">
+          {/* ── Nút điều hướng sang Employee Directory ── */}
+          <button onClick={() => navigate('/employees')}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs
+                             font-semibold text-slate-600 hover:bg-slate-100
+                             border border-slate-200 transition-all">
+            <Users size={13} />
+            Nhân viên
+          </button>
+
           <button onClick={() => navigate('/register')}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95
                              text-white text-xs font-bold rounded-xl transition-all
                              shadow-sm shadow-blue-200">
             Đăng ký khuôn mặt
           </button>
+
           <button className="w-8 h-8 flex items-center justify-center rounded-lg
                              hover:bg-slate-100 text-slate-500 transition-colors">
             <Bell size={16} />
@@ -154,14 +169,35 @@ export default function ManagerDashboard() {
                              hover:bg-slate-100 text-slate-500 transition-colors">
             <Settings size={16} />
           </button>
-          <button onClick={logout}
+          {/* <button onClick={logout}
                   className="flex items-center gap-1.5 text-xs text-red-500 font-semibold
                              hover:bg-red-50 px-3 py-2 rounded-lg transition-all">
             <LogOut size={13} /> Đăng xuất
-          </button>
-          <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center
-                          text-[11px] font-bold text-white cursor-pointer">
-            {username?.[0]?.toUpperCase() ?? 'A'}
+          </button> */}
+          <div className="relative" ref={userMenuRef}>
+            <div
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center
+                         text-[11px] font-bold text-white cursor-pointer hover:ring-2 hover:ring-blue-200 transition-all"
+            >
+              {username?.[0]?.toUpperCase() ?? 'A'}
+            </div>
+
+            {showUserMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in duration-150">
+                <div className="px-4 py-2 border-b border-slate-50 mb-1">
+                  <p className="text-xs font-bold text-slate-900">{username || 'Admin'}</p>
+                  <p className="text-[10px] text-slate-400">Quản trị viên</p>
+                </div>
+                <button
+                  onClick={logout}
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-500 hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={14} />
+                  <span>Đăng xuất</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -171,23 +207,8 @@ export default function ManagerDashboard() {
         {/* ── TAB: Overview ── */}
         {tab === 'overview' && (
           <>
-            {/* Heading + time filter */}
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-2xl font-black text-slate-950">Tổng quan hệ thống</h1>
-                <p className="text-sm text-slate-400 mt-0.5">
-                  Giám sát và phân tích điểm danh sinh trắc học theo thời gian thực.
-                </p>
-              </div>
-              {/* <div className="flex items-center gap-2 bg-white border border-slate-200
-                              rounded-xl p-1 text-xs font-semibold">
-                <button className="px-3 py-1.5 bg-blue-600 text-white rounded-lg">24 giờ qua</button>
-                <button className="px-3 py-1.5 text-slate-500 hover:bg-slate-50 rounded-lg">7 ngày</button>
-              </div> */}
-            </div>
-
             {/* Stat cards */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {STAT_CARDS.map(({ icon, label, val, sub, subColor, color, bg }) => (
                 <div key={label}
                      className="bg-white border border-slate-100 rounded-3xl p-5
@@ -209,7 +230,6 @@ export default function ManagerDashboard() {
 
             {/* Charts row */}
             <div className="grid gap-4">
-
               {/* Bar chart theo khoảng thời gian */}
               <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
                 <div className="flex items-start justify-between mb-1">
@@ -295,6 +315,7 @@ function RecentTable({ avCol }: { avCol: (id:string)=>string }) {
       .finally(() => setLoad(false));
   }, []);
 
+  const navigate = useNavigate();
   return (
     <div className="bg-white border border-slate-100 rounded-3xl overflow-hidden shadow-sm">
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
@@ -302,7 +323,8 @@ function RecentTable({ avCol }: { avCol: (id:string)=>string }) {
           <h3 className="text-base font-bold text-slate-950">Lịch sử điểm danh gần đây</h3>
           <p className="text-xs text-slate-400">Nhật ký xác thực mới nhất trên toàn hệ thống</p>
         </div>
-        <button className="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-0.5">
+        <button onClick={() => navigate('/employees')}
+                className="text-xs text-blue-600 font-semibold hover:underline flex items-center gap-0.5">
           Xem tất cả <ChevronRight size={12} />
         </button>
       </div>
@@ -332,22 +354,18 @@ function HistoryTable({ records, loading, avCol, compact = false }:
       <thead>
         <tr className="bg-slate-50">
           {['Mã NV','Họ tên','Phòng ban','Chức vụ','Thời gian'].map(h => (
-            <th key={h} className="px-6 py-3 text-left text-[10px] font-semibold
-                                   text-slate-400 tracking-widest uppercase">{h}</th>
+            <th key={h} className="px-6 py-3 text-left text-[10px] font-semibold text-slate-400 tracking-widest uppercase">{h}</th>
           ))}
         </tr>
       </thead>
       <tbody>
         {records.map((r, i) => (
           <tr key={r.user_id}
-              className={`border-t border-slate-50 hover:bg-blue-50/40 transition-colors
-                          ${i % 2 === 1 ? 'bg-slate-50/40' : ''}`}>
+              className={`border-t border-slate-50 hover:bg-blue-50/40 transition-colors ${i % 2 === 1 ? 'bg-slate-50/40' : ''}`}>
             <td className="px-6 py-4 text-blue-700 font-bold text-xs">{r.user_id}</td>
             <td className="px-6 py-4">
               <div className="flex items-center gap-2.5">
-                <div className={`w-7 h-7 rounded-full ${avCol(r.user_id)}
-                                flex items-center justify-center text-[9px]
-                                font-bold text-white flex-shrink-0`}>
+                <div className={`w-7 h-7 rounded-full ${avCol(r.user_id)} flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0`}>
                   {initials(r.name)}
                 </div>
                 <span className="font-semibold text-slate-900">{r.name}</span>
@@ -355,9 +373,7 @@ function HistoryTable({ records, loading, avCol, compact = false }:
             </td>
             <td className="px-6 py-4 text-slate-500">{r.department}</td>
             <td className="px-6 py-4 text-slate-500">{r.position}</td>
-            <td className="px-6 py-4 text-slate-400 tabular-nums font-mono text-xs">
-              {timeStr(r.timestamp)}
-            </td>
+            <td className="px-6 py-4 text-slate-400 tabular-nums font-mono text-xs">{timeStr(r.timestamp)}</td>
           </tr>
         ))}
       </tbody>

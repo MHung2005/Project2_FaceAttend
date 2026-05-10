@@ -1,8 +1,8 @@
 from fastapi import APIRouter, UploadFile, File
 import numpy as np
 import cv2
-from ..service.embeddings import FaceEmbeddingService
-from ..service.storage import StorageService
+from ..service.ai.embeddings import FaceEmbeddingService
+from ..database.storage import StorageService
 
 db = StorageService()
 face_embed = FaceEmbeddingService()

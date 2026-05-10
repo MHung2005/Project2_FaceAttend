@@ -10,6 +10,6 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "--bind", "0.0.0.0:5000", "backend.run:app"]
+CMD ["uvicorn", "backend.run:app", "--host", "0.0.0.0", "--port", "8000"]
 
 

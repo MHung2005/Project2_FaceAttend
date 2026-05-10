@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from ..service.auth_service import AuthService
-from ..service.storage import StorageService
+from ..database.storage import StorageService
 
 auth_router = APIRouter(prefix="/auth")
 auth_service = AuthService()
