@@ -10,15 +10,27 @@ from insightface.app import FaceAnalysis
 """
 
 # ── Ngưỡng chất lượng ──────────────────────────────────────────────────────
-DET_SCORE_THRESHOLD  = 0.75   # độ tin cậy tối thiểu khi detect khuôn mặt
+DET_SCORE_THRESHOLD  = 0.70   # độ tin cậy tối thiểu khi detect khuôn mặt
 MAX_YAW_DEGREE       = 30.0   # góc xoay ngang tối đa (°), vượt qua → bị che/nghiêng
 MIN_KPS_SPREAD_RATIO = 0.10   # tỉ lệ spread keypoint tối thiểu so với chiều cao bbox
                                # nếu quá nhỏ → keypoints tụm lại → mặt bị che
 
+_instance = None
+
 class FaceEmbeddingService:
+    def __new__(cls, *args, **kwargs):
+        global _instance
+        if _instance is None:
+            _instance = super().__new__(cls)
+            _instance._initialized = False
+        return _instance
+
     def __init__(self):
+        if getattr(self, "_initialized", False):
+            return
         self.app = FaceAnalysis(name='buffalo_l')
         self.app.prepare(ctx_id=-1, det_size=(640, 640))
+        self._initialized = True
 
     def embedding_img(self, img):
         faces = self.app.get(img)

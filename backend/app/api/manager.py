@@ -122,3 +122,31 @@ def update_employee(
     if not success:
         raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên")
     return {"status": "success", "message": "Đã cập nhật thông tin"}
+
+@manager_router.get("/employees/pending")
+def get_pending(current_manager=Depends(get_current_manager)):
+    return {"employees": db.get_pending_employees()}
+
+@manager_router.put("/employees/{user_id}/approve")
+def approve_employee(
+    user_id: str,
+    body: dict,   # {"status": "approved" | "rejected"}
+    current_manager=Depends(get_current_manager)
+):
+    status = body.get("status", "approved")
+    if status not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="Status không hợp lệ")
+    ok = db.approve_biometric(user_id, status)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên")
+    return {"status": "success"}
+
+@manager_router.put("/location")
+def set_location(body: dict, current_manager=Depends(get_current_manager)):
+    db.set_location_config(body["lat"], body["lng"], body.get("radius", 200))
+    return {"status": "success"}
+
+@manager_router.get("/location")
+def get_location(current_manager=Depends(get_current_manager)):
+    loc = db.get_location_config()
+    return loc or {"lat": None, "lng": None, "radius": 200}

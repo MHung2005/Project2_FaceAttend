@@ -12,33 +12,81 @@ class StorageService:
         self._create_index()
 
     def _create_index(self):
+        from redis.commands.search.index_definition import IndexDefinition, IndexType
+        from redis.exceptions import ResponseError
+
+        schema = (
+            TextField("user_id"),
+            TextField("name"),
+            TextField("department"),
+            TextField("position"),
+            VectorField("vector_embedding", "HNSW", {
+                "TYPE": "FLOAT32",
+                "DIM": self.vector_dim,
+                "DISTANCE_METRIC": "COSINE"
+            })
+        )
+
+        index_exists = False
         try:
-            self.redisDB.ft(self.nameDB).info()
-        except:
-            schema = (
-                TextField("user_id"),
-                TextField("name"),
-                TextField("department"),
-                TextField("position"),
-                VectorField("vector_embedding", "HNSW", {
-                    "TYPE": "FLOAT32",
-                    "DIM": self.vector_dim,
-                    "DISTANCE_METRIC": "COSINE"
-                })
-            )
-            self.redisDB.ft(self.nameDB).create_index(fields=schema)
+            info = self.redisDB.ft(self.nameDB).info()
+            index_exists = True
+
+            # Redis 7.x trả về info dạng dict với key là bytes hoặc string,
+            # trong đó index_definition là list flat [b'key', b'value', ...]
+            idx_def_raw = info.get(b"index_definition", info.get("index_definition", []))
+
+            # Chuyển list flat thành dict nếu cần
+            if isinstance(idx_def_raw, list):
+                idx_def = dict(zip(idx_def_raw[::2], idx_def_raw[1::2]))
+            elif isinstance(idx_def_raw, dict):
+                idx_def = idx_def_raw
+            else:
+                idx_def = {}
+
+            # Lấy prefixes, hỗ trợ cả key bytes lẫn string
+            prefixes = idx_def.get(b"prefixes", idx_def.get("prefixes", []))
+            decoded_prefixes = [
+                p.decode() if isinstance(p, bytes) else p for p in prefixes
+            ]
+
+            if "employee:" not in decoded_prefixes:
+                print("⚠️ Index cũ sai cấu hình prefix, đang tạo lại...")
+                self.redisDB.ft(self.nameDB).dropindex(dd=False)
+                index_exists = False  # Sẽ tạo lại bên dưới
+
+        except ResponseError as e:
+            if "Unknown index name" in str(e) or "no such index" in str(e).lower():
+                index_exists = False  # Index chưa tồn tại → tạo mới
+            else:
+                raise  # Lỗi khác thì propagate
+
+        if not index_exists:
+            try:
+                self.redisDB.ft(self.nameDB).create_index(
+                    fields=schema,
+                    definition=IndexDefinition(prefix=["employee:"], index_type=IndexType.HASH)
+                )
+                print("✅ Đã khởi tạo thành công chỉ mục Redis Search.")
+            except ResponseError as e:
+                if "Index already exists" in str(e):
+                    print("✅ Index đã tồn tại, bỏ qua.")
+                else:
+                    raise
+        else:
+            print("✅ Index hợp lệ, tiếp tục sử dụng.")
+    
 
     def add_face(self, user_id, name, department, position, vector):
         vector_bytes = np.array(vector, dtype=np.float32).tobytes()
-
         self.redisDB.hset(user_id, mapping={
-            "user_id": user_id.encode(),
-            "name": name.encode(),
-            "department": department.encode(),
-            "position": position.encode(),
-            "vector_embedding": vector_bytes
-        })
-        print(f"Đã lưu: {name}")
+            "user_id":           user_id.encode(),
+            "name":              name.encode(),
+            "department":        department.encode(),
+            "position":          position.encode(),
+            "biometric_status":  b"pending",   
+            "vector_embedding":  vector_bytes
+    })
 
     def search_face(self, query_vector, top_k=1):
         vector_bytes = np.array(query_vector, dtype=np.float32).tobytes()
@@ -63,17 +111,19 @@ class StorageService:
             "score": 1 - float(doc.score)
         }
 
-    def save_checkin(self, user_id, name, department, position):
+    def save_checkin(self, user_id, name, department, position, lat=None, lng=None, gps_ok=False):  
         today = datetime.now().strftime("%Y-%m-%d")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
         key = f"checkin:{today}:{user_id}"
         self.redisDB.hset(key, mapping={
-            "user_id": user_id.encode(),
-            "name": name.encode(),
+            "user_id":    user_id.encode(),
+            "name":       name.encode(),
             "department": department.encode(),
-            "position": position.encode(),
-            "timestamp": timestamp.encode()
+            "position":   position.encode(),
+            "timestamp":  timestamp.encode(),
+            "lat":        str(lat or "").encode(),   # ← THÊM
+            "lng":        str(lng or "").encode(),   # ← THÊM
+            "gps_ok":     (b"true" if gps_ok else b"false"),  # ← THÊM
         })
         self.redisDB.expire(key, 60 * 60 * 24 * 7)
         return timestamp
@@ -85,9 +135,8 @@ class StorageService:
 
     def get_checkins_by_date(self, date: str):
         pattern = f"checkin:{date}:*"
-        keys = self.redisDB.keys(pattern)
         records = []
-        for key in keys:
+        for key in self.redisDB.scan_iter(pattern):
             data = self.redisDB.hgetall(key)
             records.append({
                 k.decode(): v.decode() for k, v in data.items()
@@ -128,11 +177,11 @@ class StorageService:
         for i in range(6, -1, -1):
             day = today - timedelta(days=i)
             date_str = day.strftime("%Y-%m-%d")
-            keys = self.redisDB.keys(f"checkin:{date_str}:*")
+            count = sum(1 for _ in self.redisDB.scan_iter(f"checkin:{date_str}:*"))
             result.append({
                 "date": date_str,
                 "label": day.strftime("%a"),
-                "count": len(keys)
+                "count": count
             })
         return result
 
@@ -150,11 +199,11 @@ class StorageService:
         day = start
         while day <= end:
             date_str = day.strftime("%Y-%m-%d")
-            keys = self.redisDB.keys(f"checkin:{date_str}:*")
+            count = sum(1 for _ in self.redisDB.scan_iter(f"checkin:{date_str}:*"))
             result.append({
                 "date": date_str,
                 "label": day.strftime("%a"),
-                "count": len(keys)
+                "count": count
             })
             day += timedelta(days=1)
         return result
@@ -163,22 +212,10 @@ class StorageService:
         """
         Lấy toàn bộ danh sách nhân viên đã đăng ký.
         """
-        TEXT_FIELDS = {b"user_id", b"name", b"department", b"position"}
-
-        all_keys = self.redisDB.keys("*")
+        TEXT_FIELDS = {b"user_id", b"name", b"department", b"position", b"last_attendance"}
         employees = []
 
-        for key in all_keys:
-            key_str = key.decode() if isinstance(key, bytes) else key
-
-            # Bỏ qua các key hệ thống
-            if key_str.startswith("checkin:") or key_str.startswith("manager:"):
-                continue
-
-            # Bỏ qua Redis Search internal keys
-            if key_str.startswith("idx:") or key_str.startswith("store_faces"):
-                continue
-
+        for key in self.redisDB.scan_iter("employee:*"):
             try:
                 data = self.redisDB.hgetall(key)
                 if not data:
@@ -197,41 +234,25 @@ class StorageService:
                 if "user_id" not in decoded:
                     continue
 
-                last_checkin = self._get_last_checkin(decoded["user_id"])
-
                 employees.append({
                     "user_id":          decoded.get("user_id", ""),
                     "name":             decoded.get("name", ""),
                     "department":       decoded.get("department", ""),
                     "position":         decoded.get("position", ""),
                     "biometric_status": "registered",
-                    "last_attendance":  last_checkin,
+                    "last_attendance":  decoded.get("last_attendance", ""),
                 })
             except Exception as e:
+                key_str = key.decode() if isinstance(key, bytes) else key
                 print(f"[get_all_employees] Lỗi khi xử lý key '{key_str}': {e}")
                 continue
 
         return employees
 
-    def _get_last_checkin(self, user_id: str) -> str:
-        """Lấy timestamp điểm danh gần nhất của nhân viên"""
-        pattern = f"checkin:*:{user_id}"
-        keys = self.redisDB.keys(pattern)
-        if not keys:
-            return ""
-
-        latest = ""
-        for key in keys:
-            data = self.redisDB.hgetall(key)
-            ts = data.get(b"timestamp", b"").decode()
-            if ts > latest:
-                latest = ts
-        return latest
-
     def delete_employee(self, user_id: str) -> bool:
         """Xóa nhân viên khỏi hệ thống"""
         try:
-            deleted = self.redisDB.delete(user_id)
+            deleted = self.redisDB.delete(f"employee:{user_id}")
             return deleted > 0
         except Exception:
             return False
@@ -240,9 +261,10 @@ class StorageService:
                         department: str, position: str) -> bool:
         """Cập nhật thông tin nhân viên (không thay đổi vector)"""
         try:
-            if not self.redisDB.exists(user_id):
+            key = f"employee:{user_id}"
+            if not self.redisDB.exists(key):
                 return False
-            self.redisDB.hset(user_id, mapping={
+            self.redisDB.hset(key, mapping={
                 "name":       name.encode(),
                 "department": department.encode(),
                 "position":   position.encode(),
@@ -250,3 +272,46 @@ class StorageService:
             return True
         except Exception:
             return False
+
+    def save_employee_account(self, user_id: str, username: str, hashed_pw: str):
+        key = f"employee:{user_id}"
+        self.redisDB.hset(key, mapping={
+            "username":  username.encode(),
+            "password":  hashed_pw.encode(),
+            "user_id":   user_id.encode(),
+            "role":      b"employee",
+        })
+
+    def get_employee_account(self, username: str) -> dict | None:
+        # Scan vì username không phải key — hoặc tạo index user:username→id
+        # Cách đơn giản nhất: lưu thêm key "emp_login:{username}" -> user_id
+        key = f"emp_login:{username}"
+        user_id = self.redisDB.get(key)
+        if not user_id:
+            return None
+        data = self.redisDB.hgetall(f"employee:{user_id.decode()}")
+        return {k.decode(): v.decode() for k, v in data.items()}
+
+    def approve_biometric(self, user_id: str, status: str) -> bool:
+        # status: "approved" | "rejected"
+        if not self.redisDB.exists(user_id):
+            return False
+        self.redisDB.hset(user_id, "biometric_status", status.encode())
+        return True
+
+    def get_pending_employees(self) -> list:
+        employees = self.get_all_employees()
+        return [e for e in employees if e.get("biometric_status") == "pending"]
+
+    def set_location_config(self, lat: float, lng: float, radius: float):
+        self.redisDB.hset("location:config", mapping={
+            "lat":    str(lat).encode(),
+            "lng":    str(lng).encode(),
+            "radius": str(radius).encode(),
+        })
+
+    def get_location_config(self) -> dict | None:
+        data = self.redisDB.hgetall("location:config")
+        if not data:
+            return None
+        return {k.decode(): float(v.decode()) for k, v in data.items()}
