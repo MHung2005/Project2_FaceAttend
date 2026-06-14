@@ -1,14 +1,14 @@
-# __init__.py
+"""
+backend/app/__init__.py
+Two roles only: employee and manager. No public/guest access.
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api.guest import guest_router
-from .api.manager import manager_router
-from .api.auth import auth_router          
-from .database.storage import StorageService
-from .service.auth_service import AuthService
 
-def create_app():
-    app = FastAPI()
+
+def create_app() -> FastAPI:
+    app = FastAPI(title="FaceTime & GPS Attendance API", version="2.0.0")
 
     app.add_middleware(
         CORSMiddleware,
@@ -18,22 +18,18 @@ def create_app():
         allow_headers=["*"],
     )
 
-    app.include_router(guest_router)
-    app.include_router(manager_router)
-    app.include_router(auth_router)        
+    # ── Routers ──────────────────────────────────────────────────
+    from .api.auth import auth_router, employee_auth_router
+    from .api.manager import manager_router
+    from .api.employee import employee_router
 
-    _init_default_manager()
+    app.include_router(auth_router)           # /auth/login, /auth/me
+    app.include_router(employee_auth_router)  # /auth/employee/login
+    app.include_router(manager_router)        # /manager/*
+    app.include_router(employee_router)       # /employee/*
+
+    @app.get("/health")
+    def health():
+        return {"status": "ok"}
 
     return app
-
-def _init_default_manager():
-    db = StorageService()
-    auth = AuthService()
-
-    DEFAULT_USERNAME = "admin"
-    DEFAULT_PASSWORD = "admin123"  
-
-    if not db.get_manager(DEFAULT_USERNAME):
-        hashed = auth.hash_password(DEFAULT_PASSWORD)
-        db.save_manager(DEFAULT_USERNAME, hashed)
-        print(f"✅ Đã tạo tài khoản manager mặc định: {DEFAULT_USERNAME}")
